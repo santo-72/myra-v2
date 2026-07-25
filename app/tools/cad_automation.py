@@ -18,6 +18,7 @@ class CADAutomation:
         """
         logger.info(f"Generating Blender script for: {prompt}")
         
+        export_filepath = os.path.join(self.output_dir, filename + '.stl').replace('\\', '/')
         script_content = f"""
 import bpy
 
@@ -33,7 +34,7 @@ def generate_model():
     bpy.ops.mesh.primitive_monkey_add(size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0))
     
     # Export to STL
-    export_path = r"{os.path.join(self.output_dir, filename + '.stl').replace('\\', '/')}"
+    export_path = r"{export_filepath}"
     bpy.ops.export_mesh.stl(filepath=export_path)
     
 if __name__ == "__main__":

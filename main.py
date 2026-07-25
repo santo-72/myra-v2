@@ -37,12 +37,13 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                         if pipeline.is_speech(chunk):
                             state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
                             window.update_audio_amplitude(pipeline.get_rms_amplitude(chunk) * 10)
-                            await client.send_audio(chunk)
+                        
+                        # Gemini Live requires a continuous audio stream to detect turn-taking naturally
+                        await client.send_audio(chunk)
                     except queue.Empty:
-                        pass
+                        await asyncio.sleep(0.01)
                     except Exception:
-                        pass
-                    await asyncio.sleep(0.01)
+                        await asyncio.sleep(0.01)
 
             async def audio_receiver():
                 async for msg in client.receive_stream():

@@ -11,7 +11,7 @@ class AudioPipeline:
         self.sample_rate = sample_rate
         self.frame_duration_ms = frame_duration_ms
         self.frame_size = int(sample_rate * (frame_duration_ms / 1000.0))
-        self.vad = webrtcvad.Vad(3) # Aggressiveness mode 3
+        self.vad = webrtcvad.Vad(1) # Lower aggressiveness to pick up speech easier
         self.audio_queue = queue.Queue()
         self.stream = None
 
