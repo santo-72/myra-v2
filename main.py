@@ -34,7 +34,7 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                     turns=[
                         types.Content(
                             role="user",
-                            parts=[types.Part.from_text(text="Introduce yourself in Bengali and say you are online and ready.")]
+                            parts=[types.Part.from_text(text="Say exactly: 'হ্যালো, আমি মায়রা! আমি তৈরি।' in Bengali. Do not say anything else. No English.")]
                         )
                     ],
                     turn_complete=True
@@ -66,7 +66,10 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                             if part.inline_data:
                                 state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
                                 window.update_audio_amplitude(0.5)
-                                await asyncio.to_thread(out_stream.write, part.inline_data.data)
+                                try:
+                                    await asyncio.to_thread(out_stream.write, part.inline_data.data)
+                                except Exception as e:
+                                    logger.error(f"PyAudio write error: {e}")
 
             asyncio.create_task(audio_sender())
             asyncio.create_task(audio_receiver())

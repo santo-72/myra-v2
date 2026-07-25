@@ -195,12 +195,10 @@ class GeminiLiveClient:
         
         try:
             await self.session.send_realtime_input(
-                media_chunks=[
-                    types.Blob(
-                        data=pcm_data,
-                        mime_type="audio/pcm;rate=16000"
-                    )
-                ]
+                audio=types.Blob(
+                    data=pcm_data,
+                    mime_type="audio/pcm;rate=16000"
+                )
             )
         except Exception as e:
             logger.error("send_audio_error", error=str(e))
