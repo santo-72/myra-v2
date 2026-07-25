@@ -176,7 +176,8 @@ class GeminiLiveClient:
         config = types.LiveConnectConfig(
             system_instruction=self.system_instruction,
             tools=tool_declarations,
-            response_modalities=["AUDIO"]
+            response_modalities=["AUDIO"],
+            output_audio_transcription=types.AudioTranscriptionConfig()
         )
         try:
             # We use client.aio for asynchronous streaming
@@ -193,15 +194,13 @@ class GeminiLiveClient:
             return
         
         try:
-            await self.session.send(
-                input=types.LiveClientRealtimeInput(
-                    media_chunks=[
-                        types.Blob(
-                            data=pcm_data,
-                            mime_type="audio/pcm;rate=16000"
-                        )
-                    ]
-                )
+            await self.session.send_realtime_input(
+                media_chunks=[
+                    types.Blob(
+                        data=pcm_data,
+                        mime_type="audio/pcm;rate=16000"
+                    )
+                ]
             )
         except Exception as e:
             logger.error("send_audio_error", error=str(e))

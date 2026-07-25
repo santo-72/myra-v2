@@ -13,6 +13,7 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
     try:
         from app.core.gemini_live_client import GeminiLiveClient
         from app.audio.pipeline import AudioPipeline
+        from google.genai import types
         import queue
         
         client = GeminiLiveClient()
@@ -28,7 +29,17 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
             pipeline.start_listening()
             
             # Trigger an initial greeting to test audio playback
-            asyncio.create_task(client.session.send(input="Introduce yourself in Bengali and say you are online and ready.", end_of_turn=True))
+            asyncio.create_task(
+                client.session.send_client_content(
+                    turns=[
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_text(text="Introduce yourself in Bengali and say you are online and ready.")]
+                        )
+                    ],
+                    turn_complete=True
+                )
+            )
             
             async def audio_sender():
                 while True:
