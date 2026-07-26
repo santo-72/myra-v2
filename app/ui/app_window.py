@@ -385,8 +385,12 @@ class AssistantWindow(QMainWindow):
         self.update_audio_amplitude(0.8)
         
     def trigger_speak(self):
+        if getattr(self, 'is_muted', False):
+            self.toggle_mute()
+        self.speak_prompt_requested = True
+        self.append_transcript("হ্যাঁ বলুন, আমি শুনছি এবং প্রস্তুত! (Yes, speak! I am listening and ready.)", is_user=False)
         self.state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
-        self.update_audio_amplitude(0.5)
+        self.update_audio_amplitude(0.6)
 
     def on_state_change(self, state: AssistantState):
         self.orb.set_state(state)

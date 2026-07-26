@@ -201,6 +201,19 @@ class GeminiLiveClient:
                     types.FunctionDeclaration(
                         name="get_saved_memories",
                         description="Retrieves all stored facts, profile details, and important memories from the local database."
+                    ),
+                    types.FunctionDeclaration(
+                        name="send_message",
+                        description="Sends an automated text message via WhatsApp, Messenger, or Telegram to a recipient.",
+                        parameters=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "app": types.Schema(type=types.Type.STRING, enum=["whatsapp", "messenger", "telegram"], description="Target messaging application"),
+                                "recipient": types.Schema(type=types.Type.STRING, description="Name of the contact or recipient to message"),
+                                "message": types.Schema(type=types.Type.STRING, description="The message content to send")
+                            },
+                            required=["app", "recipient", "message"]
+                        )
                     )
                 ]
             )

@@ -29,22 +29,45 @@ class DestructiveActionGate:
                 return True
         return False
 
-    async def intercept_and_confirm(self, command: str, execute_callback: Callable[[], Awaitable[str]]) -> str:
+    async def request_confirmation(self, action_description: str, stt_source_callback: Callable[[], Awaitable[str]] = None) -> bool:
         """
-        Intercepts the command if dangerous. In a full implementation, this pauses 
-        execution, transitions to ACTIVE_SPEAKING to request confirmation, and 
-        awaits a WS event or STT response.
-        For now, we simulate the block.
+        Requests explicit spoken/verbal confirmation for external or destructive actions.
+        """
+        logger.warning("destructive_confirmation_requested", action=action_description)
+        self.state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
+        
+        if stt_source_callback:
+            try:
+                response_text = await stt_source_callback()
+                response_clean = response_text.strip().lower()
+                affirmative_keywords = [
+                    "yes", "হ্যাঁ", "হাঁ", "পাঠাও", "yes send", "ok", 
+                    "send", "ঠিক আছে", "করো", "sure", "proceed", "approve"
+                ]
+                for kw in affirmative_keywords:
+                    if kw in response_clean:
+                        logger.info("destructive_action_confirmed", action=action_description, response=response_clean)
+                        return True
+                logger.warning("destructive_action_rejected_by_voice", action=action_description, response=response_clean)
+                return False
+            except Exception as e:
+                logger.error("confirmation_stt_error", error=str(e))
+                return False
+        
+        # When no real-time voice verification loop is attached, block by default for safety
+        logger.warning(" destructive_action_blocked_no_stt_source", action=action_description)
+        return False
+
+    async def intercept_and_confirm(self, command: str, execute_callback: Callable[[], Awaitable[str]], stt_source_callback: Callable[[], Awaitable[str]] = None) -> str:
+        """
+        Intercepts the command if dangerous. Requires explicit verbal confirmation before execution.
         """
         if self.is_dangerous(command):
             logger.warning("destructive_action_intercepted", command=command)
-            # 1. Ask for confirmation
-            self.state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
-            
-            # TODO: Integrate with audio/STT pipeline to actually wait for "yes"
-            # For this phase's mock, we will automatically reject dangerous commands
-            # until full STT verbal confirmation looping is integrated.
-            return "Execution Blocked: Destructive action requires explicit verbal confirmation."
+            confirmed = await self.request_confirmation(f"Execute dangerous command: {command}", stt_source_callback=stt_source_callback)
+            if not confirmed:
+                return "Execution Blocked: Destructive action requires explicit verbal confirmation."
             
         # Proceed safely
         return await execute_callback()
+

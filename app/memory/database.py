@@ -3,6 +3,7 @@ import os
 import structlog
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+import difflib
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +51,16 @@ class LocalDatabase:
                         source TEXT NOT NULL,
                         data_payload TEXT NOT NULL,
                         imported_at TEXT NOT NULL
+                    )
+                """)
+                # Table for messaging contacts
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS contacts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        app TEXT NOT NULL,
+                        identifier TEXT NOT NULL,
+                        created_at TEXT NOT NULL
                     )
                 """)
                 conn.commit()
@@ -173,4 +184,63 @@ class LocalDatabase:
                 return cursor.lastrowid
         except Exception as e:
             logger.error("import_data_error", error=str(e))
+            return None
+
+    def add_contact(self, name: str, app: str, identifier: str) -> Optional[int]:
+        try:
+            timestamp = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO contacts (name, app, identifier, created_at) VALUES (?, ?, ?, ?)",
+                    (name, app.lower(), identifier, timestamp)
+                )
+                conn.commit()
+                row_id = cursor.lastrowid
+                logger.info("contact_added", id=row_id, name=name, app=app, identifier=identifier)
+                return row_id
+        except Exception as e:
+            logger.error("add_contact_error", error=str(e))
+            return None
+
+    def resolve_contact(self, name: str, app: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if app:
+                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts WHERE app = ?", (app.lower(),))
+                else:
+                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts")
+                rows = [dict(r) for r in cursor.fetchall()]
+                
+                if not rows:
+                    if app: # fallback to searching across any app if specific app yielded nothing
+                        cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts")
+                        rows = [dict(r) for r in cursor.fetchall()]
+                    if not rows:
+                        return None
+
+                query = name.strip().lower()
+                
+                # 1. Exact case-insensitive match
+                for row in rows:
+                    if row["name"].lower() == query:
+                        return row
+                        
+                # 2. Substring match
+                for row in rows:
+                    if query in row["name"].lower() or row["name"].lower() in query:
+                        return row
+                        
+                # 3. Fuzzy similarity match
+                names = [r["name"].lower() for r in rows]
+                matches = difflib.get_close_matches(query, names, n=1, cutoff=0.4)
+                if matches:
+                    matched_name = matches[0]
+                    for row in rows:
+                        if row["name"].lower() == matched_name:
+                            return row
+                return None
+        except Exception as e:
+            logger.error("resolve_contact_error", error=str(e))
             return None

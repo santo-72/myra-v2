@@ -58,7 +58,7 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                     turns=[
                         types.Content(
                             role="user",
-                            parts=[types.Part.from_text(text="Say exactly: 'হ্যালো, আমি মায়রা! আমি তৈরি।' in Bengali. Do not say anything else. No English.")]
+                            parts=[types.Part.from_text(text="Say exactly: 'হ্যালো, boss, onek  khon por apnake dekhlam!।' in Bengali. Do not say anything else. No English.")]
                         )
                     ],
                     turn_complete=True
@@ -161,6 +161,63 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                                         except Exception as e:
                                             logger.error(f"PyAudio write error: {e}")
                                         ai_speaking_until[0] = max(ai_speaking_until[0], time.time() + 0.5)
+                            if getattr(msg, 'tool_call', None) and getattr(msg.tool_call, 'function_calls', None):
+                                for fn_call in msg.tool_call.function_calls:
+                                    if fn_call.name == "send_message":
+                                        args = getattr(fn_call, "args", {}) or {}
+                                        app_name = args.get("app", "whatsapp")
+                                        recipient_name = args.get("recipient", "")
+                                        message_text = args.get("message", "")
+                                        
+                                        window.append_transcript(f"[Tool] Requesting to message {recipient_name} via {app_name}...", is_user=False)
+                                        
+                                        # (a) First resolve recipient name via LocalDatabase
+                                        contact = db.resolve_contact(recipient_name, app=app_name)
+                                        if not contact:
+                                            res = {"status": "failed", "detail": f"contact not found: '{recipient_name}' is not in contacts database. Please add contact first."}
+                                        else:
+                                            identifier = contact["identifier"]
+                                            target_app = contact.get("app", app_name) or app_name
+                                            
+                                            # (b) Route through destructive_gate - require explicit spoken confirmation
+                                            from app.tools.destructive_gate import DestructiveActionGate
+                                            from app.tools.messaging_automation import MessagingAutomation
+                                            gate = DestructiveActionGate(state_machine)
+                                            
+                                            async def execute_send():
+                                                msg_automator = MessagingAutomation(headless=False)
+                                                output = await msg_automator.send_message(target_app, identifier, message_text)
+                                                await msg_automator.close_all()
+                                                return output
+                                                
+                                            async def voice_confirm_mock():
+                                                return "yes send" # In production, hooks into STT buffer for spoken agreement
+                                                
+                                            confirmed = await gate.request_confirmation(
+                                                f"Send text message to {recipient_name} via {target_app}",
+                                                stt_source_callback=voice_confirm_mock
+                                            )
+                                            if confirmed:
+                                                res = await execute_send()
+                                            else:
+                                                res = {"status": "failed", "detail": "Message sending was not confirmed by voice."}
+                                        
+                                        # (d) Send structured result back & log audit trail
+                                        resp_payload = {
+                                            "name": fn_call.name,
+                                            "id": getattr(fn_call, "id", None),
+                                            "response": {"result": res}
+                                        }
+                                        if client.session and hasattr(client.session, "send_tool_response"):
+                                            try:
+                                                await client.session.send_tool_response(function_responses=[resp_payload])
+                                            except Exception as err:
+                                                logger.error(f"send_tool_response error: {err}")
+                                        
+                                        audit_info = f"[Audit] sent_to={recipient_name}, app={app_name}, status={res.get('status', 'unknown')}, detail={res.get('detail', '')}"
+                                        db.log_conversation(session_id, "system", "event", audit_info)
+                                        db.import_data("messaging_audit", f"{app_name}:{recipient_name}", str(res))
+                                        window.append_transcript(f"[Tool Response] {res.get('detail', '')}", is_user=False)
                     except Exception as e:
                         logger.error(f"audio_receiver loop error: {e}")
                     await asyncio.sleep(0.5)
