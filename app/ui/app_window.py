@@ -25,6 +25,7 @@ class AssistantWindow(QMainWindow):
         super().__init__()
         self.state_machine = state_machine
         self.is_muted = False
+        self.is_screen_sharing = False
         
         self.setWindowTitle("TITAN — Santo Ghosh")
         self.resize(1200, 800)
@@ -352,13 +353,18 @@ class AssistantWindow(QMainWindow):
             self.append_transcript("System: Camera module deactivated.", is_user=False)
             
     def toggle_screen(self):
-        if "OFF" in self.lbl_screen.text():
-            self.lbl_screen.setText("Screen: SHARING")
+        if not getattr(self, 'is_screen_sharing', False) or "OFF" in self.lbl_screen.text():
+            self.is_screen_sharing = True
+            self.lbl_screen.setText("Screen: SHARING (Live to AI)")
             self.lbl_screen.setStyleSheet("color: #00ffff;")
-            self.append_transcript("System: Screen sharing activated.", is_user=False)
+            self.btn_share.setStyleSheet("background-color: #319795; color: white; border: 1px solid #00ffff; border-radius: 15px; font-weight: bold;")
+            self.append_transcript("System: Real-time screen sharing activated. AI can now see your monitor!", is_user=False)
         else:
+            self.is_screen_sharing = False
             self.lbl_screen.setText("Screen: OFF")
             self.lbl_screen.setStyleSheet("color: #a0aec0;")
+            self.btn_share.setStyleSheet("background-color: transparent; color: #00ffff; border: 1px solid #00ffff; border-radius: 15px;")
+            self.append_transcript("System: Screen sharing stopped.", is_user=False)
             
     def toggle_mute(self):
         if not getattr(self, 'is_muted', False) or self.btn_mute.text() == "Mute":

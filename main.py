@@ -165,8 +165,36 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                         logger.error(f"audio_receiver loop error: {e}")
                     await asyncio.sleep(0.5)
 
+            async def screen_streamer():
+                from app.tools.vision import VisionTools
+                import os
+                import io
+                from PIL import Image
+                vision = VisionTools()
+                
+                while True:
+                    try:
+                        if getattr(window, 'is_screen_sharing', False) and client.is_connected():
+                            os.makedirs("workspace", exist_ok=True)
+                            await asyncio.to_thread(vision.take_screenshot, "live_screen.png")
+                            screen_path = os.path.join(vision.workspace_root, "live_screen.png")
+                            if os.path.exists(screen_path):
+                                with Image.open(screen_path) as img:
+                                    img.thumbnail((1024, 768))
+                                    buf = io.BytesIO()
+                                    img.save(buf, format="JPEG", quality=75)
+                                    jpeg_data = buf.getvalue()
+                                
+                                await client.send_image(jpeg_data, mime_type="image/jpeg")
+                                db.log_conversation(session_id, "user", "event", "[Screen Shared: Live frame streamed to Myra AI]")
+                        await asyncio.sleep(3.0)
+                    except Exception as e:
+                        logger.error(f"screen_streamer error: {e}")
+                        await asyncio.sleep(3.0)
+
             asyncio.create_task(audio_sender())
             asyncio.create_task(audio_receiver())
+            asyncio.create_task(screen_streamer())
         else:
             window.append_transcript("System: Offline Mode. No API Key found.", is_user=False)
             async def mock_loop():

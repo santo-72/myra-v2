@@ -249,6 +249,21 @@ class GeminiLiveClient:
             self._live_ctx = None
             return False
 
+    async def send_image(self, image_data: bytes, mime_type: str = "image/jpeg") -> bool:
+        if not self.session:
+            return False
+        try:
+            await self.session.send_realtime_input(
+                media=types.Blob(
+                    data=image_data,
+                    mime_type=mime_type
+                )
+            )
+            return True
+        except Exception as e:
+            logger.error("send_image_error", error=str(e))
+            return False
+
     async def receive_stream(self) -> AsyncGenerator[types.LiveServerMessage, None]:
         if not self.session:
             return
