@@ -17,10 +17,30 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
     try:
         from app.core.gemini_live_client import GeminiLiveClient
         from app.audio.pipeline import AudioPipeline
+        from app.memory.database import LocalDatabase
+        from app.memory.manager import MemoryManager
         from google.genai import types
         import queue
+        import uuid
+        from datetime import datetime
+        
+        # Initialize local database and import all conversational memories
+        session_id = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        db = LocalDatabase()
+        chroma_manager = MemoryManager()
+        db.log_conversation(session_id, "system", "event", f"Session initialized: {session_id}")
+        
+        # Automatically import system config and base knowledge into local DB
+        if not db.get_memory("system_prompt_imported"):
+            try:
+                with open("config/system_prompt.md", "r", encoding="utf-8") as f:
+                    db.import_data("config", "system_prompt.md", f.read())
+                    db.save_memory("system_prompt_imported", "true")
+            except Exception:
+                pass
         
         client = GeminiLiveClient()
+        client.set_database(db, chroma_manager, session_id)
         pipeline = AudioPipeline()
         
         connected = await client.connect()
@@ -48,6 +68,7 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
             import time
             ai_speaking_until = [0.0]  # Timestamp until which AI is speaking + room echo cooldown
             last_speech_time = [0.0]   # Last timestamp user voice speech was detected
+            user_speech_logged = [False] # Avoid dual logging per single speech burst
 
             async def audio_sender():
                 audio_buffer = bytearray()
@@ -55,6 +76,15 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                     try:
                         chunk = await asyncio.to_thread(pipeline.get_audio_chunk, 0.1)
                         current_time = time.time()
+                        
+                        # 0. MICROPHONE MUTE CHECK
+                        if getattr(window, 'is_muted', False):
+                            audio_buffer.clear()
+                            if state_machine.current_state in [AssistantState.ACTIVE_LISTENING, AssistantState.ACTIVE_SPEAKING]:
+                                state_machine.transition_to(AssistantState.DORMANT)
+                                window.update_audio_amplitude(0.0)
+                            await asyncio.sleep(0.1)
+                            continue
                         
                         # 1. ECHO PREVENTION (Mute mic while AI is speaking + 0.5s cooldown)
                         if current_time < ai_speaking_until[0]:
@@ -70,10 +100,14 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                         is_user_talking = pipeline.is_speech(chunk)
                         if is_user_talking:
                             last_speech_time[0] = current_time
+                            if not user_speech_logged[0]:
+                                db.log_conversation(session_id, "user", "audio", "[User Spoke: Voice input streamed to Myra AI]")
+                                user_speech_logged[0] = True
                             state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
                             window.update_audio_amplitude(pipeline.get_rms_amplitude(chunk) * 15)
                         elif current_time - last_speech_time[0] > 1.5:
                             if state_machine.current_state == AssistantState.ACTIVE_LISTENING:
+                                user_speech_logged[0] = False
                                 state_machine.transition_to(AssistantState.ACTIVE_THINKING)
                                 window.update_audio_amplitude(0.0)
                         
@@ -114,6 +148,8 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                                     if part.text:
                                         window.append_transcript(part.text, is_user=False)
                                         state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
+                                        db.log_conversation(session_id, "myra", "text", part.text)
+                                        chroma_manager.remember_fact(part.text, {"session_id": session_id, "sender": "myra"})
                                     if part.inline_data:
                                         # 24kHz 16-bit mono audio = 48,000 bytes per second
                                         audio_len_secs = len(part.inline_data.data) / 48000.0

@@ -24,6 +24,7 @@ class AssistantWindow(QMainWindow):
     def __init__(self, state_machine: StateMachine):
         super().__init__()
         self.state_machine = state_machine
+        self.is_muted = False
         
         self.setWindowTitle("TITAN — Santo Ghosh")
         self.resize(1200, 800)
@@ -360,14 +361,20 @@ class AssistantWindow(QMainWindow):
             self.lbl_screen.setStyleSheet("color: #a0aec0;")
             
     def toggle_mute(self):
-        if self.btn_mute.text() == "Mute":
+        if not getattr(self, 'is_muted', False) or self.btn_mute.text() == "Mute":
+            self.is_muted = True
             self.btn_mute.setText("Unmute")
             self.btn_mute.setStyleSheet("background-color: #718096; color: white; text-align: center; border: none; border-radius: 15px; font-weight: bold;")
+            self.append_transcript("System: Microphone muted.", is_user=False)
         else:
+            self.is_muted = False
             self.btn_mute.setText("Mute")
             self.btn_mute.setStyleSheet("background-color: #e53e3e; color: white; text-align: center; border: none; border-radius: 15px; font-weight: bold;")
+            self.append_transcript("System: Microphone unmuted.", is_user=False)
             
     def trigger_listen(self):
+        if getattr(self, 'is_muted', False):
+            self.toggle_mute()
         self.state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
         self.update_audio_amplitude(0.8)
         

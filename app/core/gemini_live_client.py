@@ -12,6 +12,9 @@ class GeminiLiveClient:
         self.client = genai.Client(api_key=settings.gemini_api_key) if settings.gemini_api_key else None
         self.session = None
         self.model_name = "gemini-2.5-flash-native-audio-latest"
+        self.db = None
+        self.chroma_manager = None
+        self.session_id = None
         
         # Load system prompt
         self.system_instruction = "You are an AI."
@@ -20,6 +23,11 @@ class GeminiLiveClient:
                 self.system_instruction = f.read()
         except FileNotFoundError:
             pass
+
+    def set_database(self, db, chroma_manager, session_id):
+        self.db = db
+        self.chroma_manager = chroma_manager
+        self.session_id = session_id
 
     async def connect(self):
         if not self.client:
@@ -168,6 +176,31 @@ class GeminiLiveClient:
                                 "text": types.Schema(type=types.Type.STRING)
                             }
                         )
+                    ),
+                    types.FunctionDeclaration(
+                        name="query_conversation_logs",
+                        description="Searches previous voice conversation logs and transcripts in the local SQLite database.",
+                        parameters=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "query": types.Schema(type=types.Type.STRING, description="Keyword or phrase to search for in past discussions.")
+                            }
+                        )
+                    ),
+                    types.FunctionDeclaration(
+                        name="save_user_memory",
+                        description="Saves important user preferences, facts, or information directly into the local SQLite database.",
+                        parameters=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "key": types.Schema(type=types.Type.STRING, description="Name or identifier of the memory (e.g. user_favorite_color)"),
+                                "value": types.Schema(type=types.Type.STRING, description="The fact or details to remember")
+                            }
+                        )
+                    ),
+                    types.FunctionDeclaration(
+                        name="get_saved_memories",
+                        description="Retrieves all stored facts, profile details, and important memories from the local database."
                     )
                 ]
             )
