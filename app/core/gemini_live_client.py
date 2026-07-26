@@ -223,7 +223,8 @@ class GeminiLiveClient:
             system_instruction=self.system_instruction,
             tools=tool_declarations,
             response_modalities=["AUDIO"],
-            output_audio_transcription=types.AudioTranscriptionConfig()
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            temperature=0.5
         )
         try:
             # We use client.aio for asynchronous streaming
