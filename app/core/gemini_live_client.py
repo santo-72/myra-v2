@@ -214,6 +214,29 @@ class GeminiLiveClient:
                             },
                             required=["app", "recipient", "message"]
                         )
+                    ),
+                    types.FunctionDeclaration(
+                        name="add_contact",
+                        description="Saves a new person's contact number or username into Myra's local SQLite contacts database.",
+                        parameters=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "name": types.Schema(type=types.Type.STRING, description="Name of the person or contact"),
+                                "app": types.Schema(type=types.Type.STRING, enum=["whatsapp", "messenger", "telegram", "phone"], description="Messaging app or platform (default to whatsapp for mobile numbers)"),
+                                "identifier": types.Schema(type=types.Type.STRING, description="Phone number or username/ID")
+                            },
+                            required=["name", "app", "identifier"]
+                        )
+                    ),
+                    types.FunctionDeclaration(
+                        name="list_contacts",
+                        description="Retrieves all saved contact names, phone numbers, and messaging apps from the local SQLite database.",
+                        parameters=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "app": types.Schema(type=types.Type.STRING, description="Optional app filter (e.g. whatsapp, messenger)")
+                            }
+                        )
                     )
                 ]
             )

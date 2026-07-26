@@ -244,3 +244,17 @@ class LocalDatabase:
         except Exception as e:
             logger.error("resolve_contact_error", error=str(e))
             return None
+
+    def get_all_contacts(self, app: Optional[str] = None) -> list:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if app:
+                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts WHERE app = ? ORDER BY name ASC", (app.lower(),))
+                else:
+                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts ORDER BY name ASC")
+                return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            logger.error("get_all_contacts_error", error=str(e))
+            return []
+

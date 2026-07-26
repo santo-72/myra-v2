@@ -218,6 +218,34 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                                         db.log_conversation(session_id, "system", "event", audit_info)
                                         db.import_data("messaging_audit", f"{app_name}:{recipient_name}", str(res))
                                         window.append_transcript(f"[Tool Response] {res.get('detail', '')}", is_user=False)
+                                    elif fn_call.name == "add_contact":
+                                        args = getattr(fn_call, "args", {}) or {}
+                                        c_name = args.get("name", "")
+                                        c_app = args.get("app", "whatsapp")
+                                        c_id = args.get("identifier", "")
+                                        
+                                        row_id = db.add_contact(c_name, c_app, c_id)
+                                        status_msg = f"Successfully added {c_name} ({c_app}: {c_id}) to database." if row_id else "Failed to save contact."
+                                        window.append_transcript(f"[Database] {status_msg}", is_user=False)
+                                        
+                                        resp_payload = {"name": fn_call.name, "id": getattr(fn_call, "id", None), "response": {"result": status_msg}}
+                                        if client.session and hasattr(client.session, "send_tool_response"):
+                                            try:
+                                                await client.session.send_tool_response(function_responses=[resp_payload])
+                                            except Exception as err:
+                                                logger.error(f"send_tool_response error: {err}")
+                                    elif fn_call.name == "list_contacts":
+                                        args = getattr(fn_call, "args", {}) or {}
+                                        c_app = args.get("app")
+                                        all_c = db.get_all_contacts(app=c_app)
+                                        window.append_transcript(f"[Database] Retrieved {len(all_c)} contacts from database.", is_user=False)
+                                        
+                                        resp_payload = {"name": fn_call.name, "id": getattr(fn_call, "id", None), "response": {"result": {"contacts_count": len(all_c), "contacts": all_c}}}
+                                        if client.session and hasattr(client.session, "send_tool_response"):
+                                            try:
+                                                await client.session.send_tool_response(function_responses=[resp_payload])
+                                            except Exception as err:
+                                                logger.error(f"send_tool_response error: {err}")
                     except Exception as e:
                         logger.error(f"audio_receiver loop error: {e}")
                     await asyncio.sleep(0.5)
