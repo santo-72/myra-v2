@@ -102,7 +102,7 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                         logger.error(f"audio_sender_error: {e}")
                         await asyncio.sleep(0.1)
 
-            async def audio_receiver():
+            async def audio_receiver(): 
                 while True:
                     try:
                         if not client.is_connected():
