@@ -247,7 +247,6 @@ class GeminiLiveClient:
             tools=tool_declarations,
             response_modalities=["AUDIO"],
             output_audio_transcription=types.AudioTranscriptionConfig(),
-            speech_config=types.SpeechConfig(language_code="bn-BD"),
             temperature=0.35
         )
         try:
