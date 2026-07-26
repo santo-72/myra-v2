@@ -9,10 +9,18 @@ echo.
 REM Navigate to the script's own directory
 cd /d "%~dp0"
 
-REM ===== Step 1: Create Virtual Environment if missing =====
-IF NOT EXIST ".venv\Scripts\python.exe" (
-    echo [Step 1/3] Creating virtual environment...
-    python -m venv .venv
+REM ===== Step 1 & 2: Create and Activate Virtual Environment =====
+IF EXIST "venv\Scripts\python.exe" (
+    echo [Step 1/3] Virtual environment (venv) found.
+    echo [Step 2/3] Activating virtual environment...
+    call venv\Scripts\activate.bat
+) ELSE IF EXIST ".venv\Scripts\python.exe" (
+    echo [Step 1/3] Virtual environment (.venv) found.
+    echo [Step 2/3] Activating virtual environment...
+    call .venv\Scripts\activate.bat
+) ELSE (
+    echo [Step 1/3] Creating virtual environment (venv)...
+    python -m venv venv
     IF ERRORLEVEL 1 (
         echo.
         echo ERROR: Failed to create virtual environment.
@@ -22,13 +30,9 @@ IF NOT EXIST ".venv\Scripts\python.exe" (
         exit /b 1
     )
     echo Virtual environment created successfully.
-) ELSE (
-    echo [Step 1/3] Virtual environment found.
+    echo [Step 2/3] Activating virtual environment...
+    call venv\Scripts\activate.bat
 )
-
-REM ===== Step 2: Activate Virtual Environment =====
-echo [Step 2/3] Activating virtual environment...
-call .venv\Scripts\activate.bat
 
 REM ===== Step 3: Check if ALL key packages are installed =====
 echo [Step 3/3] Checking dependencies...

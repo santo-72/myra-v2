@@ -189,9 +189,18 @@ class GeminiLiveClient:
             logger.error("gemini_connection_error", error=str(e))
             return False
 
-    async def send_audio(self, pcm_data: bytes):
+    def is_connected(self) -> bool:
+        return self.session is not None
+
+    async def reconnect(self) -> bool:
+        logger.info("gemini_live_reconnecting")
+        await self.disconnect()
+        await asyncio.sleep(1)
+        return await self.connect()
+
+    async def send_audio(self, pcm_data: bytes) -> bool:
         if not self.session:
-            return
+            return False
         
         try:
             await self.session.send_realtime_input(
@@ -200,8 +209,12 @@ class GeminiLiveClient:
                     mime_type="audio/pcm;rate=16000"
                 )
             )
+            return True
         except Exception as e:
             logger.error("send_audio_error", error=str(e))
+            self.session = None
+            self._live_ctx = None
+            return False
 
     async def receive_stream(self) -> AsyncGenerator[types.LiveServerMessage, None]:
         if not self.session:
@@ -212,10 +225,16 @@ class GeminiLiveClient:
                 yield message
         except Exception as e:
             logger.error("receive_stream_error", error=str(e))
+            self.session = None
+            self._live_ctx = None
             
     async def disconnect(self):
-        if hasattr(self, '_live_ctx') and self._live_ctx:
-            await self._live_ctx.__aexit__(None, None, None)
+        try:
+            if hasattr(self, '_live_ctx') and self._live_ctx:
+                await self._live_ctx.__aexit__(None, None, None)
+        except Exception as e:
+            logger.warning("error_during_disconnect", error=str(e))
+        finally:
             self._live_ctx = None
             self.session = None
             logger.info("gemini_live_disconnected")

@@ -2,14 +2,14 @@ import structlog
 from pathlib import Path
 from app.config import settings
 import git
-from github import Github, GithubException
+from github import Github, GithubException, Auth
 
 logger = structlog.get_logger(__name__)
 
 class GitTools:
     def __init__(self):
         self.workspace_root = Path(settings.workspace_dir).resolve()
-        self.github_client = Github(settings.github_token) if settings.github_token else None
+        self.github_client = Github(auth=Auth.Token(settings.github_token)) if settings.github_token else None
 
     def git_init(self) -> str:
         try:

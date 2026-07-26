@@ -1,4 +1,8 @@
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding='utf-8')
 import asyncio
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
@@ -41,35 +45,89 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                 )
             )
             
+            import time
+            ai_speaking_until = [0.0]  # Timestamp until which AI is speaking + room echo cooldown
+            last_speech_time = [0.0]   # Last timestamp user voice speech was detected
+
             async def audio_sender():
+                audio_buffer = bytearray()
                 while True:
                     try:
                         chunk = await asyncio.to_thread(pipeline.get_audio_chunk, 0.1)
-                        if pipeline.is_speech(chunk):
-                            state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
-                            window.update_audio_amplitude(pipeline.get_rms_amplitude(chunk) * 10)
+                        current_time = time.time()
                         
-                        # Gemini Live requires a continuous audio stream to detect turn-taking naturally
-                        await client.send_audio(chunk)
+                        # 1. ECHO PREVENTION (Mute mic while AI is speaking + 0.5s cooldown)
+                        if current_time < ai_speaking_until[0]:
+                            audio_buffer.clear()
+                            continue
+                        
+                        # When speaking finishes, return to DORMANT
+                        if state_machine.current_state == AssistantState.ACTIVE_SPEAKING:
+                            state_machine.transition_to(AssistantState.DORMANT)
+                            window.update_audio_amplitude(0.0)
+                        
+                        # 2. VOICE ACTIVITY DETECTION (VAD)
+                        is_user_talking = pipeline.is_speech(chunk)
+                        if is_user_talking:
+                            last_speech_time[0] = current_time
+                            state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
+                            window.update_audio_amplitude(pipeline.get_rms_amplitude(chunk) * 15)
+                        elif current_time - last_speech_time[0] > 1.5:
+                            if state_machine.current_state == AssistantState.ACTIVE_LISTENING:
+                                state_machine.transition_to(AssistantState.ACTIVE_THINKING)
+                                window.update_audio_amplitude(0.0)
+                        
+                        # 3. SMART BUFFERING & BANDWIDTH OPTIMIZATION
+                        audio_buffer.extend(chunk)
+                        threshold_bytes = 4800 if (current_time - last_speech_time[0] <= 2.0) else 32000
+                        
+                        if len(audio_buffer) >= threshold_bytes:
+                            if not client.is_connected():
+                                logger.warning("Gemini Live disconnected, initiating auto-reconnect...")
+                                window.append_transcript("System: Connection dropped. Reconnecting...", is_user=False)
+                                reconnected = await client.reconnect()
+                                if reconnected:
+                                    window.append_transcript("System: Reconnected successfully.", is_user=False)
+                                else:
+                                    await asyncio.sleep(1)
+                                    continue
+                            
+                            success = await client.send_audio(bytes(audio_buffer))
+                            audio_buffer.clear()
+                            if not success:
+                                await asyncio.sleep(0.1)
                     except queue.Empty:
                         await asyncio.sleep(0.01)
-                    except Exception:
-                        await asyncio.sleep(0.01)
+                    except Exception as e:
+                        logger.error(f"audio_sender_error: {e}")
+                        await asyncio.sleep(0.1)
 
             async def audio_receiver():
-                async for msg in client.receive_stream():
-                    if msg.server_content and msg.server_content.model_turn:
-                        for part in msg.server_content.model_turn.parts:
-                            if part.text:
-                                window.append_transcript(part.text, is_user=False)
-                                state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
-                            if part.inline_data:
-                                state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
-                                window.update_audio_amplitude(0.5)
-                                try:
-                                    await asyncio.to_thread(out_stream.write, part.inline_data.data)
-                                except Exception as e:
-                                    logger.error(f"PyAudio write error: {e}")
+                while True:
+                    try:
+                        if not client.is_connected():
+                            await asyncio.sleep(0.5)
+                            continue
+                        async for msg in client.receive_stream():
+                            if msg.server_content and msg.server_content.model_turn:
+                                for part in msg.server_content.model_turn.parts:
+                                    if part.text:
+                                        window.append_transcript(part.text, is_user=False)
+                                        state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
+                                    if part.inline_data:
+                                        # 24kHz 16-bit mono audio = 48,000 bytes per second
+                                        audio_len_secs = len(part.inline_data.data) / 48000.0
+                                        ai_speaking_until[0] = max(ai_speaking_until[0], time.time() + audio_len_secs + 0.5)
+                                        state_machine.transition_to(AssistantState.ACTIVE_SPEAKING)
+                                        window.update_audio_amplitude(0.5)
+                                        try:
+                                            await asyncio.to_thread(out_stream.write, part.inline_data.data)
+                                        except Exception as e:
+                                            logger.error(f"PyAudio write error: {e}")
+                                        ai_speaking_until[0] = max(ai_speaking_until[0], time.time() + 0.5)
+                    except Exception as e:
+                        logger.error(f"audio_receiver loop error: {e}")
+                    await asyncio.sleep(0.5)
 
             asyncio.create_task(audio_sender())
             asyncio.create_task(audio_receiver())
