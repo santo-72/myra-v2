@@ -34,3 +34,7 @@ class VisionTools:
         except Exception as e:
             logger.error("screenshot_failed", error=str(e))
             return f"Failed to take screenshot: {str(e)}"
+
+    async def take_screenshot_async(self, output_filename: str = "screenshot.png") -> str:
+        import asyncio
+        return await asyncio.to_thread(self.take_screenshot, output_filename)

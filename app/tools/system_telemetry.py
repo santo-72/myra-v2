@@ -25,3 +25,7 @@ class SystemTelemetry:
         except Exception as e:
             logger.error("Failed to get system telemetry", error=str(e))
             return {}
+
+    async def get_metrics_async(self) -> Dict[str, Any]:
+        import asyncio
+        return await asyncio.to_thread(self.get_metrics)

@@ -33,3 +33,7 @@ class WebcamStream:
         except Exception as e:
             logger.error("Error capturing webcam snapshot", error=str(e))
             return False
+
+    async def take_snapshot_async(self, output_path: str) -> bool:
+        import asyncio
+        return await asyncio.to_thread(self.take_snapshot, output_path)

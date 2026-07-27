@@ -6,6 +6,12 @@ from app.tools.messaging_automation import MessagingAutomation
 from app.tools.messaging.utils import normalize_to_e164
 from app.tools.destructive_gate import DestructiveActionGate
 from app.core.state_machine import StateMachine, AssistantState
+from app.tools.messaging.exceptions import (
+    ContactSearchBoxNotFoundError,
+    ContactResultNotFoundError,
+    ComposeBoxNotFoundError,
+    SendButtonNotFoundError
+)
 
 def test_e164_normalization_with_bengali_and_local():
     # Bengali digits with leading zero
@@ -232,3 +238,116 @@ async def test_no_unhandled_exception_escapes_send_message():
         res = await automator.send_message("whatsapp", "Dave", "Crash test", require_confirmation=False)
         assert res["status"] == "failed"
         assert "Total crash of web driver" in res["detail"] or "failed to initialize" in res["detail"] or "Error during messaging automation" in res["detail"]
+
+@pytest.mark.asyncio
+async def test_native_search_box_not_found_raises_and_falls_back_to_browser():
+    automator = MessagingAutomation(headless=True, db=None, gate=None)
+    mock_web = AsyncMock()
+    mock_web.open.return_value = True
+    mock_web.find_contact_by_name.return_value = True
+    mock_web.type_message.return_value = True
+    mock_web.send.return_value = True
+    mock_web.confirm_sent.return_value = True
+
+    mock_native = AsyncMock()
+    mock_native.open.return_value = True
+    mock_native.find_contact_by_name.side_effect = ContactSearchBoxNotFoundError("Search box not located")
+
+    with patch("app.tools.messaging_automation.find_native_app_path", return_value="whatsapp:"), \
+         patch("app.tools.messaging_automation.NativeMessagingAdapter", return_value=mock_native), \
+         patch.object(automator, "_init_web_adapter", AsyncMock(return_value=mock_web)):
+        res = await automator.send_message("whatsapp", "Eva", "Fallback search box test", require_confirmation=False)
+        assert res["status"] == "sent"
+        mock_native.open.assert_called_once()
+        mock_web.open.assert_called_once()
+        mock_web.send.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_native_contact_result_not_found_raises_and_falls_back_to_browser():
+    automator = MessagingAutomation(headless=True, db=None, gate=None)
+    mock_web = AsyncMock()
+    mock_web.open.return_value = True
+    mock_web.find_contact_by_name.return_value = True
+    mock_web.type_message.return_value = True
+    mock_web.send.return_value = True
+    mock_web.confirm_sent.return_value = True
+
+    mock_native = AsyncMock()
+    mock_native.open.return_value = True
+    mock_native.find_contact_by_name.side_effect = ContactResultNotFoundError("Contact result not found")
+
+    with patch("app.tools.messaging_automation.find_native_app_path", return_value="whatsapp:"), \
+         patch("app.tools.messaging_automation.NativeMessagingAdapter", return_value=mock_native), \
+         patch.object(automator, "_init_web_adapter", AsyncMock(return_value=mock_web)):
+        res = await automator.send_message("whatsapp", "Frank", "Fallback result test", require_confirmation=False)
+        assert res["status"] == "sent"
+        mock_web.open.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_native_compose_box_not_found_raises_and_falls_back_to_browser():
+    automator = MessagingAutomation(headless=True, db=None, gate=None)
+    mock_web = AsyncMock()
+    mock_web.open.return_value = True
+    mock_web.find_contact_by_name.return_value = True
+    mock_web.type_message.return_value = True
+    mock_web.send.return_value = True
+    mock_web.confirm_sent.return_value = True
+
+    mock_native = AsyncMock()
+    mock_native.open.return_value = True
+    mock_native.find_contact_by_name.return_value = True
+    mock_native.type_message.side_effect = ComposeBoxNotFoundError("Compose box not found")
+
+    with patch("app.tools.messaging_automation.find_native_app_path", return_value="whatsapp:"), \
+         patch("app.tools.messaging_automation.NativeMessagingAdapter", return_value=mock_native), \
+         patch.object(automator, "_init_web_adapter", AsyncMock(return_value=mock_web)):
+        res = await automator.send_message("whatsapp", "Grace", "Fallback compose test", require_confirmation=False)
+        assert res["status"] == "sent"
+        mock_web.open.assert_called_once()
+        mock_web.find_contact_by_name.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_native_send_button_not_found_raises_and_falls_back_to_browser():
+    automator = MessagingAutomation(headless=True, db=None, gate=None)
+    mock_web = AsyncMock()
+    mock_web.open.return_value = True
+    mock_web.find_contact_by_name.return_value = True
+    mock_web.type_message.return_value = True
+    mock_web.send.return_value = True
+    mock_web.confirm_sent.return_value = True
+
+    mock_native = AsyncMock()
+    mock_native.open.return_value = True
+    mock_native.find_contact_by_name.return_value = True
+    mock_native.type_message.return_value = True
+    mock_native.send.side_effect = SendButtonNotFoundError("Send button not found")
+
+    with patch("app.tools.messaging_automation.find_native_app_path", return_value="whatsapp:"), \
+         patch("app.tools.messaging_automation.NativeMessagingAdapter", return_value=mock_native), \
+         patch.object(automator, "_init_web_adapter", AsyncMock(return_value=mock_web)):
+        res = await automator.send_message("whatsapp", "Henry", "Fallback send button test", require_confirmation=False)
+        assert res["status"] == "sent"
+        mock_web.open.assert_called_once()
+        mock_web.send.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_native_happy_path_step_by_step_logging_and_sent_confirmation():
+    automator = MessagingAutomation(headless=True, db=None, gate=None)
+    mock_native = AsyncMock()
+    mock_native.open.return_value = True
+    mock_native.find_contact_by_name.return_value = True
+    mock_native.type_message.return_value = True
+    mock_native.send.return_value = True
+    mock_native.confirm_sent.return_value = True
+
+    with patch("app.tools.messaging_automation.find_native_app_path", return_value="whatsapp:"), \
+         patch("app.tools.messaging_automation.NativeMessagingAdapter", return_value=mock_native), \
+         patch.object(automator, "_init_web_adapter", AsyncMock()) as mock_init_web:
+        res = await automator.send_message("whatsapp", "Ivy", "Happy path native", require_confirmation=False)
+        assert res["status"] == "sent"
+        mock_native.open.assert_called_once()
+        mock_native.find_contact_by_name.assert_called_once_with("Ivy")
+        mock_native.type_message.assert_called_once_with("Happy path native")
+        mock_native.send.assert_called_once()
+        mock_native.confirm_sent.assert_called_once()
+        mock_init_web.assert_not_called()

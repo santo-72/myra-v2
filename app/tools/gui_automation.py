@@ -33,6 +33,18 @@ class GUIAutomation:
             
     def press_key(self, key: str):
         try:
-            pyautogui.press(key)
+            if '+' in key:
+                parts = [k.strip() for k in key.split('+')]
+                pyautogui.hotkey(*parts)
+            else:
+                pyautogui.press(key)
         except Exception as e:
             logger.error(f"Failed to press key {key}", error=str(e))
+            raise
+            
+    def press_hotkey(self, *keys: str):
+        try:
+            pyautogui.hotkey(*keys)
+        except Exception as e:
+            logger.error(f"Failed to press hotkey {keys}", error=str(e))
+            raise

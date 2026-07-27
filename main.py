@@ -76,10 +76,14 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
 
             async def audio_sender():
                 audio_buffer = bytearray()
+                last_heartbeat = [time.time()]
                 while True:
                     try:
                         chunk = await asyncio.to_thread(pipeline.get_audio_chunk, 0.05)
                         current_time = time.time()
+                        if current_time - last_heartbeat[0] >= 2.0:
+                            logger.info("audio_capture_watchdog_heartbeat", status="running", loop_timestamp=current_time)
+                            last_heartbeat[0] = current_time
                         
                         # 0. MICROPHONE MUTE CHECK
                         if getattr(window, 'is_muted', False):
@@ -209,14 +213,18 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                                 ),
                                 timeout=hard_ceiling
                             )
+                            if res.get("status") == "sent":
+                                await tts_callback("মেসেজ পাঠানো হয়েছে")
+                            else:
+                                await tts_callback("দুঃখিত, মেসেজ পাঠাতে পারিনি")
                         except asyncio.TimeoutError:
                             logger.error("global_safety_net_hard_timeout", app=app_name, recipient=recipient_name, timeout=hard_ceiling)
-                            await tts_callback("দুঃখিত, একটা সমস্যা হয়েছে, আবার চেষ্টা করুন")
+                            await tts_callback("দুঃখিত, মেসেজ পাঠাতে পারিনি")
                             state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
                             res = {"status": "failed", "detail": "Global safety net aborted messaging due to hard timeout."}
                         except Exception as ex:
                             logger.error("global_safety_net_exception", app=app_name, recipient=recipient_name, error=str(ex), exc_info=True)
-                            await tts_callback("দুঃখিত, একটা সমস্যা হয়েছে, আবার চেষ্টা করুন")
+                            await tts_callback("দুঃখিত, মেসেজ পাঠাতে পারিনি")
                             state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
                             res = {"status": "failed", "detail": f"Global safety net aborted messaging due to exception: {str(ex)}"}
                         finally:

@@ -148,6 +148,8 @@ class MessagingAutomation:
                         found = await adapter.find_contact_by_number(recipient_identifier)
             except Exception as search_ex:
                 logger.warning("contact_search_exception_on_adapter", use_native=use_native, error=str(search_ex))
+                if use_native and not native_failure_reason:
+                    native_failure_reason = f"{type(search_ex).__name__}: {str(search_ex)}"
                 found = False
 
             # If native search failed or raised exception, fall back to web automation before giving up or prompting
@@ -183,7 +185,13 @@ class MessagingAutomation:
                     if capture_res.get("status") == "success" and capture_res.get("number"):
                         norm_phone = capture_res["number"]
                         logger.info("voice_phone_obtained_from_state_machine", number=norm_phone)
-                        found = await adapter.find_contact_by_number(norm_phone)
+                        found = False
+                        try:
+                            found = await adapter.find_contact_by_number(norm_phone)
+                        except Exception as num_ex:
+                            logger.warning("native_find_by_number_exception", error=str(num_ex))
+                            if use_native and not native_failure_reason:
+                                native_failure_reason = f"{type(num_ex).__name__}: {str(num_ex)}"
                         if not found and use_native:
                             logger.info("native_number_search_failed_falling_back_to_web", number=norm_phone)
                             if not native_failure_reason:
@@ -209,8 +217,41 @@ class MessagingAutomation:
                     res = {"status": "failed", "detail": f"contact not found: Could not find {recipient_identifier} in {display_name} search."}
                     return res
 
-            # STEP 6 — DESTRUCTIVE GATE VERBAL CONFIRMATION (BEFORE SEND)
-            typed = await adapter.type_message(message)
+            # STEP 6 — DESTRUCTIVE GATE VERBAL CONFIRMATION (BEFORE SEND) & MESSAGE COMPOSING
+            typed = False
+            try:
+                typed = await adapter.type_message(message)
+            except Exception as type_ex:
+                logger.warning("type_message_exception_on_adapter", use_native=use_native, error=str(type_ex))
+                if use_native and not native_failure_reason:
+                    native_failure_reason = f"{type(type_ex).__name__}: {str(type_ex)}"
+                typed = False
+
+            if not typed and use_native:
+                logger.info("native_type_message_failed_falling_back_to_web", recipient=recipient_identifier)
+                if not native_failure_reason:
+                    native_failure_reason = "compose_box_not_found_on_native"
+                path_attempted = "native_then_browser"
+                try:
+                    await adapter.close()
+                except Exception:
+                    pass
+                adapter = await self._init_web_adapter(app_clean)
+                if adapter and await adapter.open():
+                    use_native = False
+                    found_web = False
+                    if db_contact and target_id:
+                        found_web = await adapter.find_contact_by_name(db_contact["name"]) or await adapter.find_contact_by_number(target_id)
+                    else:
+                        found_web = await adapter.find_contact_by_name(recipient_identifier) or (
+                            await adapter.find_contact_by_number(recipient_identifier) if (recipient_identifier.startswith("+") or any(char.isdigit() for char in recipient_identifier)) else False
+                        )
+                    if found_web:
+                        try:
+                            typed = await adapter.type_message(message)
+                        except Exception:
+                            typed = False
+
             if not typed:
                 res = {"status": "failed", "detail": f"Could not enter message text in {display_name} compose box."}
                 return res
@@ -223,12 +264,48 @@ class MessagingAutomation:
                     res = {"status": "failed", "detail": "Message sending was not confirmed by voice."}
                     return res
 
-            sent = await adapter.send()
+            sent = False
+            try:
+                sent = await adapter.send()
+            except Exception as send_ex:
+                logger.warning("send_exception_on_adapter", use_native=use_native, error=str(send_ex))
+                if use_native and not native_failure_reason:
+                    native_failure_reason = f"{type(send_ex).__name__}: {str(send_ex)}"
+                sent = False
+
+            if not sent and use_native:
+                logger.info("native_send_failed_falling_back_to_web", recipient=recipient_identifier)
+                if not native_failure_reason:
+                    native_failure_reason = "send_button_not_found_on_native"
+                path_attempted = "native_then_browser"
+                try:
+                    await adapter.close()
+                except Exception:
+                    pass
+                adapter = await self._init_web_adapter(app_clean)
+                if adapter and await adapter.open():
+                    use_native = False
+                    found_web = False
+                    if db_contact and target_id:
+                        found_web = await adapter.find_contact_by_name(db_contact["name"]) or await adapter.find_contact_by_number(target_id)
+                    else:
+                        found_web = await adapter.find_contact_by_name(recipient_identifier) or (
+                            await adapter.find_contact_by_number(recipient_identifier) if (recipient_identifier.startswith("+") or any(char.isdigit() for char in recipient_identifier)) else False
+                        )
+                    if found_web and await adapter.type_message(message):
+                        try:
+                            sent = await adapter.send()
+                        except Exception:
+                            sent = False
+
             if not sent:
                 res = {"status": "failed", "detail": f"Failed to transmit message on {display_name}."}
                 return res
 
-            await adapter.confirm_sent()
+            try:
+                await adapter.confirm_sent()
+            except Exception as confirm_ex:
+                logger.warning("confirm_sent_exception", error=str(confirm_ex))
 
             # Update database last_used_at timestamp
             if self.db:
@@ -236,7 +313,7 @@ class MessagingAutomation:
                 if target_id:
                     self.db.update_contact_last_used(target_id, app=app_clean)
 
-            res = {"status": "sent", "detail": f"Successfully sent {display_name} message to {recipient_identifier}."}
+            res = {"status": "sent", "detail": f"Successfully sent {display_name} message to {recipient_identifier}.", "path_attempted": path_attempted, "native_failure_reason": native_failure_reason}
             return res
 
         except Exception as e:
