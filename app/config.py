@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     tts_pitch: float = 0.0         # Pitch tuning for natural conversational warmth
     stt_confidence_threshold: float = 0.70 # Threshold for generating clarifying questions
     stt_hotwords_enabled: bool = True
+    default_country_code: str = "+880"
+    contact_capture_timeout_seconds: float = 20.0
+    contact_capture_max_retries: int = 2
+    native_app_launch_wait_seconds: float = 5.0
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

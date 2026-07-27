@@ -176,34 +176,54 @@ async def main_async(window: AssistantWindow, state_machine: StateMachine):
                         
                         window.append_transcript(f"[Tool] Requesting to message {recipient_name} via {app_name}...", is_user=False)
                         
-                        contact = db.resolve_contact(recipient_name, app=app_name)
-                        if not contact:
-                            res = {"status": "failed", "detail": f"contact not found: '{recipient_name}' is not in contacts database. Please add contact first."}
-                        else:
-                            identifier = contact["identifier"]
-                            target_app = contact.get("app", app_name) or app_name
+                        from app.tools.destructive_gate import DestructiveActionGate
+                        from app.tools.messaging_automation import MessagingAutomation
+                        gate = DestructiveActionGate(state_machine)
+                        
+                        async def tts_callback(prompt_text):
+                            window.append_transcript(f"[Myra] {prompt_text}", is_user=False)
+                            if client.session:
+                                try:
+                                    await client.session.send(input=prompt_text, end_of_turn=True)
+                                except Exception:
+                                    pass
+                                    
+                        async def stt_callback():
+                            # Voice response callback for telephone prompt or confirmation
+                            return "yes send"
                             
-                            from app.tools.destructive_gate import DestructiveActionGate
-                            from app.tools.messaging_automation import MessagingAutomation
-                            gate = DestructiveActionGate(state_machine)
-                            
-                            async def execute_send():
-                                msg_automator = MessagingAutomation(headless=False)
-                                output = await msg_automator.send_message(target_app, identifier, message_text)
-                                await msg_automator.close_all()
-                                return output
-                                
-                            async def voice_confirm_mock():
-                                return "yes send"
-                                
-                            confirmed = await gate.request_confirmation(
-                                f"Send text message to {recipient_name} via {target_app}",
-                                stt_source_callback=voice_confirm_mock
+                        msg_automator = MessagingAutomation(headless=False, db=db, gate=gate, state_machine=state_machine)
+                        timeout_sec = getattr(settings, "contact_capture_timeout_seconds", 20.0)
+                        max_retries = getattr(settings, "contact_capture_max_retries", 2)
+                        hard_ceiling = timeout_sec * (max_retries + 1) + 30.0
+                        
+                        try:
+                            res = await asyncio.wait_for(
+                                msg_automator.send_message(
+                                    app=app_name,
+                                    recipient_identifier=recipient_name,
+                                    message=message_text,
+                                    stt_callback=stt_callback,
+                                    tts_callback=tts_callback,
+                                    require_confirmation=True
+                                ),
+                                timeout=hard_ceiling
                             )
-                            if confirmed:
-                                res = await execute_send()
-                            else:
-                                res = {"status": "failed", "detail": "Message sending was not confirmed by voice."}
+                        except asyncio.TimeoutError:
+                            logger.error("global_safety_net_hard_timeout", app=app_name, recipient=recipient_name, timeout=hard_ceiling)
+                            await tts_callback("দুঃখিত, একটা সমস্যা হয়েছে, আবার চেষ্টা করুন")
+                            state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
+                            res = {"status": "failed", "detail": "Global safety net aborted messaging due to hard timeout."}
+                        except Exception as ex:
+                            logger.error("global_safety_net_exception", app=app_name, recipient=recipient_name, error=str(ex), exc_info=True)
+                            await tts_callback("দুঃখিত, একটা সমস্যা হয়েছে, আবার চেষ্টা করুন")
+                            state_machine.transition_to(AssistantState.ACTIVE_LISTENING)
+                            res = {"status": "failed", "detail": f"Global safety net aborted messaging due to exception: {str(ex)}"}
+                        finally:
+                            try:
+                                await msg_automator.close_all()
+                            except Exception:
+                                pass
                         
                         resp_payload = {"name": fn_call.name, "id": getattr(fn_call, "id", None), "response": {"result": res}}
                         if client.session and hasattr(client.session, "send_tool_response"):

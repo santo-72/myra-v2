@@ -60,9 +60,19 @@ class LocalDatabase:
                         name TEXT NOT NULL,
                         app TEXT NOT NULL,
                         identifier TEXT NOT NULL,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        source TEXT DEFAULT 'manual',
+                        last_used_at TEXT
                     )
                 """)
+                try:
+                    cursor.execute("ALTER TABLE contacts ADD COLUMN source TEXT DEFAULT 'manual'")
+                except Exception:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE contacts ADD COLUMN last_used_at TEXT")
+                except Exception:
+                    pass
                 # Table for STT recognition accuracy and vocabulary boosting corrections
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS stt_corrections (
@@ -196,18 +206,18 @@ class LocalDatabase:
             logger.error("import_data_error", error=str(e))
             return None
 
-    def add_contact(self, name: str, app: str, identifier: str) -> Optional[int]:
+    def add_contact(self, name: str, app: str, identifier: str, source: str = "manual") -> Optional[int]:
         try:
             timestamp = datetime.now().isoformat()
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "INSERT INTO contacts (name, app, identifier, created_at) VALUES (?, ?, ?, ?)",
-                    (name, app.lower(), identifier, timestamp)
+                    "INSERT INTO contacts (name, app, identifier, created_at, source) VALUES (?, ?, ?, ?, ?)",
+                    (name, app.lower(), identifier, timestamp, source)
                 )
                 conn.commit()
                 row_id = cursor.lastrowid
-                logger.info("contact_added", id=row_id, name=name, app=app, identifier=identifier)
+                logger.info("contact_added", id=row_id, name=name, app=app, identifier=identifier, source=source)
                 return row_id
         except Exception as e:
             logger.error("add_contact_error", error=str(e))
@@ -218,14 +228,14 @@ class LocalDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if app:
-                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts WHERE app = ?", (app.lower(),))
+                    cursor.execute("SELECT * FROM contacts WHERE app = ?", (app.lower(),))
                 else:
-                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts")
+                    cursor.execute("SELECT * FROM contacts")
                 rows = [dict(r) for r in cursor.fetchall()]
                 
                 if not rows:
                     if app: # fallback to searching across any app if specific app yielded nothing
-                        cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts")
+                        cursor.execute("SELECT * FROM contacts")
                         rows = [dict(r) for r in cursor.fetchall()]
                     if not rows:
                         return None
@@ -260,13 +270,77 @@ class LocalDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if app:
-                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts WHERE app = ? ORDER BY name ASC", (app.lower(),))
+                    cursor.execute("SELECT * FROM contacts WHERE app = ? ORDER BY name ASC", (app.lower(),))
                 else:
-                    cursor.execute("SELECT id, name, app, identifier, created_at FROM contacts ORDER BY name ASC")
+                    cursor.execute("SELECT * FROM contacts ORDER BY name ASC")
                 return [dict(r) for r in cursor.fetchall()]
         except Exception as e:
             logger.error("get_all_contacts_error", error=str(e))
             return []
+
+    def upsert_contact_by_phone(self, name: str, phone: str, app: str = "whatsapp", source: str = "chat_auto_saved", update_last_used: bool = True) -> Optional[int]:
+        """
+        Inserts or updates a contact by phone number under the given name and app,
+        setting source and updating last_used_at timestamp.
+        """
+        try:
+            timestamp = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id FROM contacts WHERE app = ? AND (LOWER(name) = ? OR identifier = ?)",
+                    (app.lower(), name.strip().lower(), phone.strip())
+                )
+                existing = cursor.fetchone()
+                if existing:
+                    row_id = existing["id"]
+                    if update_last_used:
+                        cursor.execute(
+                            "UPDATE contacts SET name = ?, identifier = ?, source = ?, last_used_at = ? WHERE id = ?",
+                            (name.strip(), phone.strip(), source, timestamp, row_id)
+                        )
+                    else:
+                        cursor.execute(
+                            "UPDATE contacts SET name = ?, identifier = ?, source = ? WHERE id = ?",
+                            (name.strip(), phone.strip(), source, row_id)
+                        )
+                else:
+                    last_used = timestamp if update_last_used else None
+                    cursor.execute(
+                        "INSERT INTO contacts (name, app, identifier, created_at, source, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        (name.strip(), app.lower(), phone.strip(), timestamp, source, last_used)
+                    )
+                    row_id = cursor.lastrowid
+                conn.commit()
+                logger.info("upserted_contact_by_phone", id=row_id, name=name, app=app, phone=phone, source=source)
+                return row_id
+        except Exception as e:
+            logger.error("upsert_contact_by_phone_error", error=str(e))
+            return None
+
+    def update_contact_last_used(self, identifier: str, app: Optional[str] = None) -> bool:
+        """
+        Updates the last_used_at timestamp for a contact identified by name or identifier.
+        """
+        try:
+            timestamp = datetime.now().isoformat()
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if app:
+                    cursor.execute(
+                        "UPDATE contacts SET last_used_at = ? WHERE app = ? AND (identifier = ? OR LOWER(name) = ?)",
+                        (timestamp, app.lower(), identifier, identifier.strip().lower())
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE contacts SET last_used_at = ? WHERE identifier = ? OR LOWER(name) = ?",
+                        (timestamp, identifier, identifier.strip().lower())
+                    )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("update_contact_last_used_error", error=str(e))
+            return False
 
     def log_stt_correction(self, misheard: str, corrected: str) -> bool:
         """Logs user corrections to improve speech recognition accuracy over time."""

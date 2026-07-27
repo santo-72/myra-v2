@@ -47,7 +47,8 @@ async def test_send_success():
     mock_page.wait_for_selector = mock_wait_for_selector
     mock_context = MagicMock(pages=[mock_page])
     
-    with patch.object(automator, "_get_context", AsyncMock(return_value=mock_context)):
+    with patch("app.tools.messaging_automation.find_native_app_path", return_value=None), \
+         patch.object(automator, "_get_context", AsyncMock(return_value=mock_context)):
         res = await automator.send_message("whatsapp", "+8801700000000", "কাল দেখা করব")
         assert res["status"] == "sent"
         assert "Successfully sent WhatsApp message" in res["detail"]
@@ -68,7 +69,8 @@ async def test_send_failure_element_not_found():
     mock_page.wait_for_selector = mock_wait_for_selector
     mock_context = MagicMock(pages=[mock_page])
     
-    with patch.object(automator, "_get_context", AsyncMock(return_value=mock_context)):
+    with patch("app.tools.messaging_automation.find_native_app_path", return_value=None), \
+         patch.object(automator, "_get_context", AsyncMock(return_value=mock_context)):
         res = await automator.send_message("whatsapp", "invalid_number", "test")
         assert res["status"] == "failed"
         assert "not found" in res["detail"].lower()
