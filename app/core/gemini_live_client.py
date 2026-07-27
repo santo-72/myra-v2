@@ -242,10 +242,42 @@ class GeminiLiveClient:
             )
         ]
 
+        # Compile dynamic custom vocabulary / hotwords to bias STT recognition accuracy
+        # & enable bilingual Bengali-English code-switching (bn-BD / en-US)
+        hotword_hints = []
+        if self.db and hasattr(self.db, "build_custom_hotwords") and settings.stt_hotwords_enabled:
+            try:
+                hotword_hints = self.db.build_custom_hotwords()
+            except Exception as err:
+                logger.warning("failed_building_hotwords", error=str(err))
+
+        enriched_system_instruction = self.system_instruction
+        if hotword_hints:
+            enriched_system_instruction += (
+                "\n\n### 🎯 Dynamic Speech Recognition Vocabulary & Hotword Context Hints:\n"
+                "The user frequently uses these contact names, technical terms, and custom wake words. "
+                "Prioritize recognizing these exact terms when listening to voice audio and bilingual code-switching (bn-BD / en-US):\n"
+                f"{', '.join(hotword_hints)}\n"
+                "\n### 🎚️ Prosody & Speech Cadence Tuning:\n"
+                f"Maintain natural speaking rhythm without rushing or sounding robotic. Cadence factor: {settings.tts_speaking_rate}, Pitch profile: {settings.tts_pitch}."
+            )
+
+        # Voice selection: Enumerate available voices in Gemini Live API:
+        # Options: Aoede, Kore, Puck, Fenrir, Charon, Leda, Orus, Zephyr, etc.
+        # Why Aoede: We default to 'Aoede' because its vocal timbre provides the warmest, most natural, and gentle polite cadence for conversational Bengali speech without sounding harsh or flat.
+        speech_config = types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name=settings.tts_voice_name
+                )
+            )
+        )
+
         config = types.LiveConnectConfig(
-            system_instruction=self.system_instruction,
+            system_instruction=enriched_system_instruction,
             tools=tool_declarations,
             response_modalities=["AUDIO"],
+            speech_config=speech_config,
             output_audio_transcription=types.AudioTranscriptionConfig(),
             temperature=0.35
         )
@@ -253,7 +285,7 @@ class GeminiLiveClient:
             # We use client.aio for asynchronous streaming
             self._live_ctx = self.client.aio.live.connect(model=self.model_name, config=config)
             self.session = await self._live_ctx.__aenter__()
-            logger.info("gemini_live_connected")
+            logger.info("gemini_live_connected", voice_name=settings.tts_voice_name)
             return True
         except Exception as e:
             logger.error("gemini_connection_error", error=str(e))

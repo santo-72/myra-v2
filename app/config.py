@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     interrupt_acknowledge_verbosity: str = "minimal"
     partial_streaming_enabled: bool = True
     latency_instrumentation: bool = True
+    
+    # Voice Realism (TTS) & Recognition Accuracy (STT) configurations
+    tts_voice_name: str = "Aoede" # Supported Gemini Live voices: Puck, Charon, Kore, Fenrir, Aoede
+    tts_speaking_rate: float = 1.0 # Cadence speed tuning
+    tts_pitch: float = 0.0         # Pitch tuning for natural conversational warmth
+    stt_confidence_threshold: float = 0.70 # Threshold for generating clarifying questions
+    stt_hotwords_enabled: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

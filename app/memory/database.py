@@ -63,6 +63,16 @@ class LocalDatabase:
                         created_at TEXT NOT NULL
                     )
                 """)
+                # Table for STT recognition accuracy and vocabulary boosting corrections
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS stt_corrections (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        misheard_text TEXT NOT NULL,
+                        corrected_text TEXT NOT NULL,
+                        occurrences INTEGER DEFAULT 1,
+                        last_corrected_at TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
                 logger.info("local_database_initialized", db_path=self.db_path)
         except Exception as e:
@@ -258,3 +268,85 @@ class LocalDatabase:
             logger.error("get_all_contacts_error", error=str(e))
             return []
 
+    def log_stt_correction(self, misheard: str, corrected: str) -> bool:
+        """Logs user corrections to improve speech recognition accuracy over time."""
+        try:
+            timestamp = datetime.now().isoformat()
+            misheard_clean = misheard.strip().lower()
+            corrected_clean = corrected.strip()
+            if not misheard_clean or not corrected_clean:
+                return False
+                
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, occurrences FROM stt_corrections WHERE LOWER(misheard_text) = ? AND LOWER(corrected_text) = ?",
+                    (misheard_clean, corrected_clean.lower())
+                )
+                existing = cursor.fetchone()
+                if existing:
+                    new_count = existing["occurrences"] + 1
+                    cursor.execute(
+                        "UPDATE stt_corrections SET occurrences = ?, last_corrected_at = ? WHERE id = ?",
+                        (new_count, timestamp, existing["id"])
+                    )
+                else:
+                    cursor.execute(
+                        "INSERT INTO stt_corrections (misheard_text, corrected_text, occurrences, last_corrected_at) VALUES (?, ?, 1, ?)",
+                        (misheard_clean, corrected_clean, timestamp)
+                    )
+                conn.commit()
+                logger.info("stt_correction_logged", misheard=misheard_clean, corrected=corrected_clean)
+                return True
+        except Exception as e:
+            logger.error("log_stt_correction_error", error=str(e))
+            return False
+
+    def get_stt_corrections(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Retrieves learned STT word correction pairs."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, misheard_text, corrected_text, occurrences, last_corrected_at FROM stt_corrections ORDER BY occurrences DESC, last_corrected_at DESC LIMIT ?",
+                    (limit,)
+                )
+                return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            logger.error("get_stt_corrections_error", error=str(e))
+            return []
+
+    def build_custom_hotwords(self) -> List[str]:
+        """
+        Compiles custom speech vocabulary boosting hints from contact names, wake phrase,
+        frequently used technical project terms, and learned user corrections.
+        """
+        hotwords = set()
+        # 1. Add core technical and brand vocabulary
+        core_terms = ["Myra", "WhatsApp", "Messenger", "Telegram", "Playwright", "Python", "SQLite", "ChromaDB", "Bangla", "Gemini"]
+        hotwords.update(core_terms)
+        
+        # 2. Add wake phrase words
+        from app.config import settings
+        if settings.secret_wake_phrase:
+            for word in settings.secret_wake_phrase.split():
+                if len(word) > 2:
+                    hotwords.add(word.capitalize())
+                    
+        # 3. Add contact names from database
+        contacts = self.get_all_contacts()
+        for c in contacts:
+            name = c.get("name", "").strip()
+            if name:
+                hotwords.add(name)
+                for part in name.split():
+                    if len(part) > 1:
+                        hotwords.add(part)
+                        
+        # 4. Add learned STT corrections
+        corrections = self.get_stt_corrections(limit=50)
+        for corr in corrections:
+            hotwords.add(corr["corrected_text"])
+            
+        logger.debug("custom_hotwords_built", count=len(hotwords))
+        return sorted(list(hotwords))
