@@ -10,6 +10,9 @@ class AssistantState(Enum):
     ACTIVE_LISTENING = auto()
     ACTIVE_THINKING = auto()
     ACTIVE_SPEAKING = auto()
+    TOOL_EXECUTING = auto()
+    ALERT = auto()
+    ERROR = auto()
 
 class StateMachine:
     def __init__(self):

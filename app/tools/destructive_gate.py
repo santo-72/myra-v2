@@ -50,23 +50,31 @@ class DestructiveActionGate:
                         return True
                 logger.warning("destructive_action_rejected_by_voice", action=action_description, response=response_clean)
                 return False
+            except asyncio.CancelledError:
+                logger.warning("destructive_confirmation_cancelled_mid_prompt", action=action_description)
+                raise
             except Exception as e:
                 logger.error("confirmation_stt_error", error=str(e))
                 return False
         
         # When no real-time voice verification loop is attached, block by default for safety
-        logger.warning(" destructive_action_blocked_no_stt_source", action=action_description)
+        logger.warning("destructive_action_blocked_no_stt_source", action=action_description)
         return False
 
     async def intercept_and_confirm(self, command: str, execute_callback: Callable[[], Awaitable[str]], stt_source_callback: Callable[[], Awaitable[str]] = None) -> str:
         """
         Intercepts the command if dangerous. Requires explicit verbal confirmation before execution.
+        If interrupted before confirmation is given, aborts completely without auto-resuming.
         """
         if self.is_dangerous(command):
             logger.warning("destructive_action_intercepted", command=command)
-            confirmed = await self.request_confirmation(f"Execute dangerous command: {command}", stt_source_callback=stt_source_callback)
-            if not confirmed:
-                return "Execution Blocked: Destructive action requires explicit verbal confirmation."
+            try:
+                confirmed = await self.request_confirmation(f"Execute dangerous command: {command}", stt_source_callback=stt_source_callback)
+                if not confirmed:
+                    return "Execution Blocked: Destructive action requires explicit verbal confirmation."
+            except asyncio.CancelledError:
+                logger.warning("destructive_action_interrupted_before_confirmation", command=command)
+                return "Execution Aborted: Action interrupted before confirmation. Will not auto-resume without fresh user validation."
             
         # Proceed safely
         return await execute_callback()

@@ -22,7 +22,20 @@ class ShellRunner:
                 cwd=str(self.workspace_root)
             )
             
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await process.communicate()
+            except asyncio.CancelledError:
+                logger.warning("shell_command_cancelled", command=command)
+                try:
+                    if process.returncode is None:
+                        process.terminate()
+                        await asyncio.wait_for(process.wait(), timeout=1.0)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                raise
             
             out_str = stdout.decode('utf-8').strip() if stdout else ""
             err_str = stderr.decode('utf-8').strip() if stderr else ""
@@ -39,6 +52,8 @@ class ShellRunner:
                 result += f"Stderr:\n{err_str}\n"
                 
             return result
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error("shell_command_failed", error=str(e))
             return f"Error executing command: {str(e)}"

@@ -46,9 +46,23 @@ class FileSystemTools:
         
         try:
             safe_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(safe_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            logger.info("file_written", path=file_path)
+            temp_path = safe_path.with_name(f"{safe_path.name}.tmp_{os.getpid()}")
+            
+            try:
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
+                # Atomic replacement of target file to prevent corrupted partial writes upon interruption
+                temp_path.replace(safe_path)
+            finally:
+                if temp_path.exists():
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
+                        
+            logger.info("file_written_atomically", path=file_path)
             return f"Successfully wrote to {file_path}"
         except Exception as e:
             logger.error("file_write_error", path=file_path, error=str(e))

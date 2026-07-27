@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     twilio_phone_number: str = ""
     ollama_model: str = "llama3"
     duress_password: str = "protocol zero"
+    interrupt_acknowledge_verbosity: str = "minimal"
+    partial_streaming_enabled: bool = True
+    latency_instrumentation: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

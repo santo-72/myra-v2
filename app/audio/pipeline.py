@@ -40,6 +40,15 @@ class AudioPipeline:
     def get_audio_chunk(self, timeout=None) -> bytes:
         return self.audio_queue.get(timeout=timeout)
 
+    def clear_queue(self):
+        """Instantly purges buffered audio packets during barge-in interruptions."""
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+        logger.debug("audio_pipeline_queue_purged")
+
     def is_speech(self, pcm_data: bytes) -> bool:
         try:
             return self.vad.is_speech(pcm_data, self.sample_rate)
